@@ -55,12 +55,10 @@ st.markdown("""
     <h1 style="
         font-size: 4rem; 
         font-weight: 800; 
-        background: linear-gradient(135deg, #818cf8 0%, #c084fc 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
+        color: #818cf8;
         margin: 0;
         letter-spacing: -2px;
+        text-shadow: 0 2px 10px rgba(129, 140, 248, 0.3);
     ">
         SecureInsights
     </h1>
