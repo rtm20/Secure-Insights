@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
+from components.loader import show_loader
 
 st.set_page_config(
     page_title="Fraud Detection",
@@ -65,17 +66,8 @@ st.markdown("### 📊 Alert Overview")
 
 # Show loading state
 data_placeholder = st.empty()
-data_placeholder.markdown("""
-<div style="text-align: center; padding: 2rem;">
-    <div style="display: inline-block; width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top-color: #667eea; border-radius: 50%; animation: spin 1s linear infinite;"></div>
-    <p style="margin-top: 1rem; color: #6B7280;">Loading live fraud data from Snowflake...</p>
-</div>
-<style>
-@keyframes spin {
-    to { transform: rotate(360deg); }
-}
-</style>
-""", unsafe_allow_html=True)
+with data_placeholder.container():
+    show_loader("Loading fraud statistics")
 
 # Get live fraud statistics
 from utils.snowflake_connector import get_connection
@@ -235,169 +227,257 @@ with tab1:
             index=1
         )
     
-    # Fetch REAL fraud alerts from Snowflake
-    st.markdown("#### 🔄 Loading real-time fraud patterns from Snowflake...")
+    # Fetch REAL fraud alerts from Snowflake with filters applied
+    loader_placeholder = st.empty()
+    with loader_placeholder.container():
+        show_loader("Analyzing fraud patterns across organizations")
+    
+    # Build time filter condition
+    time_conditions = {
+        "Last 24 Hours": "AND b.LAST_ACTIVITY_DATE >= DATEADD('hour', -24, CURRENT_TIMESTAMP())",
+        "Last 7 Days": "AND b.LAST_ACTIVITY_DATE >= DATEADD('day', -7, CURRENT_TIMESTAMP())",
+        "Last 30 Days": "AND b.LAST_ACTIVITY_DATE >= DATEADD('day', -30, CURRENT_TIMESTAMP())",
+        "All Time": ""
+    }
+    time_condition = time_conditions.get(time_filter, "")
     
     try:
-        # Query 1: Multiple Claims + Defaults Pattern (High Risk)
-        multi_fraud_query = """
-        SELECT 
-            'ALT-' || TO_CHAR(CURRENT_DATE(), 'YYYY') || '-001' as alert_id,
-            'Multiple Claims + Defaults' as pattern,
-            'High' as risk_level,
-            COUNT(DISTINCT b.CUSTOMER_ID) as affected_count,
-            2 as org_count,
-            ROUND(AVG(b.CREDIT_SCORE * 0.1 + i.TOTAL_CLAIM_AMOUNT / 10000), 0) as risk_score,
-            2 as hours_ago
-        FROM BANK_DB.RISK.CUSTOMER_RISK_SCORES b
-        JOIN INSURANCE_DB.RISK.CLAIM_RISK_SCORES i
-            ON b.ZIP_CODE = i.ZIP_CODE AND b.AGE = i.AGE
-        WHERE b.DEFAULT_FLAG = 1 
-            AND i.FRAUD_INDICATOR = 1
-        """
-        
-        # Query 2: Rapid Account Openings + High Returns (High Risk)
-        rapid_pattern_query = """
-        SELECT 
-            'ALT-' || TO_CHAR(CURRENT_DATE(), 'YYYY') || '-002' as alert_id,
-            'High Value Returns + Low Credit Score' as pattern,
-            'High' as risk_level,
-            COUNT(DISTINCT r.CUSTOMER_ID) as affected_count,
-            2 as org_count,
-            ROUND(AVG(r.RETURN_RATE * 100 + (850 - b.CREDIT_SCORE) / 10), 0) as risk_score,
-            5 as hours_ago
-        FROM RETAIL_DB.RISK.CUSTOMER_RISK_SCORES r
-        JOIN BANK_DB.RISK.CUSTOMER_RISK_SCORES b
-            ON r.ZIP_CODE = b.ZIP_CODE AND r.AGE = b.AGE
-        WHERE r.HIGH_VALUE_RETURNS_FLAG = 1 
-            AND b.CREDIT_SCORE < 600
-        """
-        
-        # Query 3: Geographic Anomalies (Medium Risk)
-        geo_anomaly_query = """
-        SELECT 
-            'ALT-' || TO_CHAR(CURRENT_DATE(), 'YYYY') || '-003' as alert_id,
-            'Geographic Anomalies (High-Risk ZIP Codes)' as pattern,
-            'Medium' as risk_level,
-            COUNT(DISTINCT ZIP_CODE) as affected_count,
-            3 as org_count,
-            65 as risk_score,
-            24 as hours_ago
-        FROM (
-            SELECT ZIP_CODE FROM BANK_DB.RISK.CUSTOMER_RISK_SCORES WHERE DEFAULT_FLAG = 1
-            UNION ALL
-            SELECT ZIP_CODE FROM INSURANCE_DB.RISK.CLAIM_RISK_SCORES WHERE FRAUD_INDICATOR = 1
-            UNION ALL
-            SELECT ZIP_CODE FROM RETAIL_DB.RISK.CUSTOMER_RISK_SCORES WHERE HIGH_VALUE_RETURNS_FLAG = 1
-        )
-        GROUP BY ZIP_CODE
-        HAVING COUNT(*) >= 5
-        """
-        
-        # Query 4: Return Fraud Pattern (Medium Risk)
-        return_fraud_query = """
-        SELECT 
-            'ALT-' || TO_CHAR(CURRENT_DATE(), 'YYYY') || '-004' as alert_id,
-            'Suspicious Return Patterns' as pattern,
-            'Medium' as risk_level,
-            COUNT(DISTINCT CUSTOMER_ID) as affected_count,
-            1 as org_count,
-            ROUND(AVG(RETURN_RATE * 100), 0) as risk_score,
-            36 as hours_ago
-        FROM RETAIL_DB.RISK.CUSTOMER_RISK_SCORES
-        WHERE HIGH_VALUE_RETURNS_FLAG = 1
-            AND RETURN_RATE >= 0.3
-        """
-        
-        # Query 5: High Frequency Claims (Low Risk)
-        velocity_query = """
-        SELECT 
-            'ALT-' || TO_CHAR(CURRENT_DATE(), 'YYYY') || '-005' as alert_id,
-            'High Frequency Insurance Claims' as pattern,
-            'Low' as risk_level,
-            COUNT(DISTINCT POLICY_HOLDER_ID) as affected_count,
-            1 as org_count,
-            ROUND(AVG(CLAIM_FREQUENCY * 10), 0) as risk_score,
-            48 as hours_ago
-        FROM INSURANCE_DB.RISK.CLAIM_RISK_SCORES
-        WHERE CLAIM_FREQUENCY >= 4
-            AND FRAUD_INDICATOR = 0
-        """
-        
-        # Execute all queries
         alerts = []
-        for query in [multi_fraud_query, rapid_pattern_query, geo_anomaly_query, return_fraud_query, velocity_query]:
-            result = conn.execute_query(query)
-            if not result.empty:
+        
+        # Query 1: Multiple Claims + Defaults Pattern (High Risk)
+        if "High" in risk_filter or not risk_filter:
+            multi_fraud_query = f"""
+            SELECT 
+                'ALT-' || TO_CHAR(CURRENT_DATE(), 'YYYY') || '-001' as alert_id,
+                'Multiple Claims + Defaults' as pattern,
+                'High' as risk_level,
+                COUNT(DISTINCT b.CUSTOMER_ID) as affected_count,
+                2 as org_count,
+                ROUND(AVG(b.CREDIT_SCORE * 0.1 + i.TOTAL_CLAIM_AMOUNT / 10000), 0) as risk_score,
+                2 as hours_ago
+            FROM BANK_DB.RISK.CUSTOMER_RISK_SCORES b
+            JOIN INSURANCE_DB.RISK.CLAIM_RISK_SCORES i
+                ON b.ZIP_CODE = i.ZIP_CODE AND b.AGE = i.AGE
+            WHERE b.DEFAULT_FLAG = 1 
+                AND i.FRAUD_INDICATOR = 1
+                {time_condition}
+            """
+            result = conn.execute_query(multi_fraud_query)
+            if not result.empty and result.iloc[0]['AFFECTED_COUNT'] > 0:
                 alert_data = result.iloc[0]
-                
-                # Convert hours_ago to human readable
-                hours = int(alert_data['HOURS_AGO']) if 'HOURS_AGO' in alert_data else 0
-                if hours < 24:
-                    detected_text = f"{hours} hours ago"
-                else:
-                    detected_text = f"{hours // 24} day{'s' if hours // 24 > 1 else ''} ago"
-                
                 alerts.append({
                     "id": alert_data['ALERT_ID'],
                     "pattern": alert_data['PATTERN'],
                     "risk": alert_data['RISK_LEVEL'],
                     "affected": int(alert_data['AFFECTED_COUNT']),
                     "orgs": int(alert_data['ORG_COUNT']),
-                    "detected": detected_text,
+                    "detected": "2 hours ago",
                     "score": int(alert_data['RISK_SCORE']) if alert_data['RISK_SCORE'] else 50
                 })
         
+        # Query 2: High Value Returns + Low Credit Score (High Risk)
+        if "High" in risk_filter or not risk_filter:
+            rapid_pattern_query = f"""
+            SELECT 
+                'ALT-' || TO_CHAR(CURRENT_DATE(), 'YYYY') || '-002' as alert_id,
+                'High Value Returns + Low Credit Score' as pattern,
+                'High' as risk_level,
+                COUNT(DISTINCT r.CUSTOMER_ID) as affected_count,
+                2 as org_count,
+                ROUND(AVG(r.RETURN_RATE * 100 + (850 - b.CREDIT_SCORE) / 10), 0) as risk_score,
+                5 as hours_ago
+            FROM RETAIL_DB.RISK.CUSTOMER_RISK_SCORES r
+            JOIN BANK_DB.RISK.CUSTOMER_RISK_SCORES b
+                ON r.ZIP_CODE = b.ZIP_CODE AND r.AGE = b.AGE
+            WHERE r.HIGH_VALUE_RETURNS_FLAG = 1 
+                AND b.CREDIT_SCORE < 600
+                {time_condition}
+            """
+            result = conn.execute_query(rapid_pattern_query)
+            if not result.empty and result.iloc[0]['AFFECTED_COUNT'] > 0:
+                alert_data = result.iloc[0]
+                alerts.append({
+                    "id": alert_data['ALERT_ID'],
+                    "pattern": alert_data['PATTERN'],
+                    "risk": alert_data['RISK_LEVEL'],
+                    "affected": int(alert_data['AFFECTED_COUNT']),
+                    "orgs": int(alert_data['ORG_COUNT']),
+                    "detected": "5 hours ago",
+                    "score": int(alert_data['RISK_SCORE']) if alert_data['RISK_SCORE'] else 50
+                })
+        
+        # Query 3: Geographic Anomalies (Medium Risk)
+        if "Medium" in risk_filter or not risk_filter:
+            # Build time filter for UNION queries (RETAIL_DB has no date columns)
+            bank_time = time_condition if time_condition else ""
+            insurance_time = time_condition.replace('b.LAST_ACTIVITY_DATE', 'LAST_CLAIM_DATE') if time_condition else ""
+            retail_time = ""  # No date column in RETAIL_DB
+            
+            geo_anomaly_query = f"""
+            SELECT 
+                'ALT-' || TO_CHAR(CURRENT_DATE(), 'YYYY') || '-003' as alert_id,
+                'Geographic Anomalies (High-Risk ZIP Codes)' as pattern,
+                'Medium' as risk_level,
+                COUNT(DISTINCT ZIP_CODE) as affected_count,
+                3 as org_count,
+                65 as risk_score,
+                24 as hours_ago
+            FROM (
+                SELECT ZIP_CODE FROM BANK_DB.RISK.CUSTOMER_RISK_SCORES b WHERE DEFAULT_FLAG = 1 {bank_time}
+                UNION ALL
+                SELECT ZIP_CODE FROM INSURANCE_DB.RISK.CLAIM_RISK_SCORES WHERE FRAUD_INDICATOR = 1 {insurance_time}
+                UNION ALL
+                SELECT ZIP_CODE FROM RETAIL_DB.RISK.CUSTOMER_RISK_SCORES WHERE HIGH_VALUE_RETURNS_FLAG = 1 {retail_time}
+            )
+            GROUP BY ZIP_CODE
+            HAVING COUNT(*) >= 5
+            """
+            result = conn.execute_query(geo_anomaly_query)
+            if not result.empty and result.iloc[0]['AFFECTED_COUNT'] > 0:
+                alert_data = result.iloc[0]
+                alerts.append({
+                    "id": alert_data['ALERT_ID'],
+                    "pattern": alert_data['PATTERN'],
+                    "risk": alert_data['RISK_LEVEL'],
+                    "affected": int(alert_data['AFFECTED_COUNT']),
+                    "orgs": int(alert_data['ORG_COUNT']),
+                    "detected": "1 day ago",
+                    "score": int(alert_data['RISK_SCORE']) if alert_data['RISK_SCORE'] else 50
+                })
+        
+        # Query 4: Return Fraud Pattern (Medium Risk)
+        if "Medium" in risk_filter or not risk_filter:
+            return_fraud_query = f"""
+            SELECT 
+                'ALT-' || TO_CHAR(CURRENT_DATE(), 'YYYY') || '-004' as alert_id,
+                'Suspicious Return Patterns' as pattern,
+                'Medium' as risk_level,
+                COUNT(DISTINCT CUSTOMER_ID) as affected_count,
+                1 as org_count,
+                ROUND(AVG(RETURN_RATE * 100), 0) as risk_score,
+                36 as hours_ago
+            FROM RETAIL_DB.RISK.CUSTOMER_RISK_SCORES
+            WHERE HIGH_VALUE_RETURNS_FLAG = 1
+                AND RETURN_RATE >= 0.3
+            """
+            result = conn.execute_query(return_fraud_query)
+            if not result.empty and result.iloc[0]['AFFECTED_COUNT'] > 0:
+                alert_data = result.iloc[0]
+                alerts.append({
+                    "id": alert_data['ALERT_ID'],
+                    "pattern": alert_data['PATTERN'],
+                    "risk": alert_data['RISK_LEVEL'],
+                    "affected": int(alert_data['AFFECTED_COUNT']),
+                    "orgs": int(alert_data['ORG_COUNT']),
+                    "detected": "2 days ago",
+                    "score": int(alert_data['RISK_SCORE']) if alert_data['RISK_SCORE'] else 50
+                })
+        
+        # Query 5: High Frequency Claims (Low Risk)
+        if "Low" in risk_filter or not risk_filter:
+            velocity_query = f"""
+            SELECT 
+                'ALT-' || TO_CHAR(CURRENT_DATE(), 'YYYY') || '-005' as alert_id,
+                'High Frequency Insurance Claims' as pattern,
+                'Low' as risk_level,
+                COUNT(DISTINCT POLICY_HOLDER_ID) as affected_count,
+                1 as org_count,
+                ROUND(AVG(CLAIM_FREQUENCY * 10), 0) as risk_score,
+                48 as hours_ago
+            FROM INSURANCE_DB.RISK.CLAIM_RISK_SCORES
+            WHERE CLAIM_FREQUENCY >= 4
+                AND FRAUD_INDICATOR = 0
+                {time_condition.replace('b.LAST_ACTIVITY_DATE', 'LAST_CLAIM_DATE')}
+            """
+            result = conn.execute_query(velocity_query)
+            if not result.empty and result.iloc[0]['AFFECTED_COUNT'] > 0:
+                alert_data = result.iloc[0]
+                alerts.append({
+                    "id": alert_data['ALERT_ID'],
+                    "pattern": alert_data['PATTERN'],
+                    "risk": alert_data['RISK_LEVEL'],
+                    "affected": int(alert_data['AFFECTED_COUNT']),
+                    "orgs": int(alert_data['ORG_COUNT']),
+                    "detected": "2 days ago",
+                    "score": int(alert_data['RISK_SCORE']) if alert_data['RISK_SCORE'] else 50
+                })
+        
+        # Clear loader
+        loader_placeholder.empty()
+        
         if not alerts:
-            st.info("✅ No fraud patterns detected at this time. All systems normal.")
+            st.info("✅ No fraud patterns detected for the selected filters. Try adjusting your search criteria.")
             
     except Exception as e:
+        loader_placeholder.empty()
         st.error(f"Error fetching fraud alerts: {str(e)}")
         alerts = []
     
-    # Display alerts
+    # Display alerts (already filtered by SQL queries)
     for alert in alerts:
-        if alert["risk"] in risk_filter or not risk_filter:
-            alert_class = f"alert-{alert['risk'].lower()}"
-            risk_emoji = "🔴" if alert["risk"] == "High" else "🟡" if alert["risk"] == "Medium" else "🔵"
+        alert_class = f"alert-{alert['risk'].lower()}"
+        risk_emoji = "🔴" if alert["risk"] == "High" else "🟡" if alert["risk"] == "Medium" else "🔵"
+        
+        # Generate explanation based on pattern
+        if "Multiple Claims + Defaults" in alert['pattern']:
+            explanation = f"⚠️ We found {alert['affected']} customers who have BOTH defaulted on bank loans AND filed fraudulent insurance claims. This suggests a coordinated fraud ring operating across {alert['orgs']} organizations."
+            action_needed = "Review these profiles immediately. They may be using fake identities or stolen information."
+        elif "High Value Returns" in alert['pattern'] or "Low Credit Score" in alert['pattern']:
+            explanation = f"⚠️ We identified {alert['affected']} customers with poor credit scores (below 600) who are also conducting high-value returns at retail stores. This could indicate purchase fraud using stolen cards."
+            action_needed = "Flag these customers for additional verification during purchases."
+        elif "Geographic" in alert['pattern'] or "ZIP" in alert['pattern']:
+            explanation = f"⚠️ We detected {alert['affected']} ZIP codes where multiple high-risk activities are concentrated (defaults, fraud claims, returns). These are fraud hotspots."
+            action_needed = "Implement stricter verification for new accounts and claims from these areas."
+        elif "Return" in alert['pattern']:
+            explanation = f"⚠️ {alert['affected']} customers are returning items at unusually high rates (over 30%). This may indicate return fraud, refund abuse, or reselling schemes."
+            action_needed = "Review return patterns and consider limiting return privileges for repeat offenders."
+        else:
+            explanation = f"⚠️ We detected unusual activity patterns affecting {alert['affected']} customer profiles across {alert['orgs']} organizations."
+            action_needed = "Review these patterns to identify potential fraud schemes."
+        
+        # Display alert card with expandable details
+        with st.expander(f"{risk_emoji} **{alert['pattern']}** - Risk Score: {alert['score']}/100 ({alert['detected']})", expanded=False):
+            st.markdown(f"#### 📋 What This Means:")
+            st.write(explanation)
             
-            st.markdown(f"""
-            <div class="{alert_class}">
-                <div style="display: flex; justify-content: space-between; align-items: start;">
-                    <div style="flex: 1;">
-                        <div style="font-size: 1.1rem; font-weight: bold; margin-bottom: 0.5rem;">
-                            {risk_emoji} {alert['pattern']}
-                        </div>
-                        <div style="color: #6B7280; font-size: 0.9rem;">
-                            <strong>Alert ID:</strong> {alert['id']}<br>
-                            <strong>Affected Segments:</strong> ~{alert['affected']} anonymized profiles<br>
-                            <strong>Organizations Involved:</strong> {alert['orgs']}<br>
-                            <strong>Detected:</strong> {alert['detected']}
-                        </div>
-                    </div>
-                    <div style="text-align: right;">
-                        <div style="font-size: 2rem; font-weight: bold;">{alert['score']}</div>
-                        <div style="font-size: 0.8rem;">Risk Score</div>
-                    </div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"#### 🎯 Recommended Action:")
+            st.write(action_needed)
             
-            col1, col2, col3, col4 = st.columns(4)
+            st.markdown(f"#### 📊 Alert Details:")
+            st.write(f"**Alert ID:** {alert['id']}")
+            st.write(f"**Customer Profiles Affected:** {alert['affected']} (anonymized - no personal data exposed)")
+            st.write(f"**Organizations Seeing This Pattern:** {alert['orgs']} companies")
+            st.write(f"**Detection Time:** {alert['detected']}")
+            st.write(f"**Risk Score:** {alert['score']}/100 (Higher = More Severe)")
+            
+            st.divider()
+            
+            # Action buttons
+            col1, col2, col3 = st.columns(3)
             with col1:
-                if st.button(f"🔍 View Details", key=f"view_{alert['id']}"):
-                    st.info(f"Detailed analysis for {alert['id']} would appear here.")
+                if st.button(f"🔔 Notify My Team", key=f"notify_{alert['id']}", use_container_width=True, type="primary"):
+                    st.success(f"✅ Alert sent to your organization's fraud prevention team!")
+                    st.info(f"📧 Email sent to: fraud-alerts@yourorg.com\n📱 SMS sent to on-call manager")
             with col2:
-                if st.button(f"📊 Show Pattern", key=f"pattern_{alert['id']}"):
-                    st.info("Pattern visualization would appear here.")
+                if st.button(f"📊 View Full Report", key=f"report_{alert['id']}", use_container_width=True):
+                    st.info(f"""
+                    **Full Fraud Report - {alert['id']}**
+                    
+                    This report would include:
+                    - Detailed breakdown of affected customer segments
+                    - Geographic distribution map
+                    - Timeline of suspicious activities
+                    - Comparison with historical fraud patterns
+                    - Risk assessment scores per profile
+                    
+                    💡 In production, this would generate a downloadable PDF report.
+                    """)
             with col3:
-                if st.button(f"🔔 Notify All", key=f"notify_{alert['id']}"):
-                    st.success("Notification sent to all participating organizations!")
-            with col4:
-                if st.button(f"✅ Mark Resolved", key=f"resolve_{alert['id']}"):
-                    st.success(f"Alert {alert['id']} marked as resolved.")
-            
-            st.markdown("<br>", unsafe_allow_html=True)
+                if st.button(f"✅ Mark Resolved", key=f"resolve_{alert['id']}", use_container_width=True):
+                    st.success(f"✅ Alert {alert['id']} marked as resolved and archived.")
+                    st.info("This alert will be moved to the 'Resolved Alerts' section.")
+        
+        st.markdown("<br>", unsafe_allow_html=True)
 
 with tab2:
     st.markdown("### 📈 Fraud Pattern Analysis")
