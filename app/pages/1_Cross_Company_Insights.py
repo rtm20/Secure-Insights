@@ -54,18 +54,6 @@ st.markdown("""
 
 # Header
 st.title("📊 Cross-Company Insights")
-st.markdown("Ask questions in natural language and get privacy-safe answers from multiple organizations")
-
-# Privacy indicator
-col1, col2, col3 = st.columns([2, 1, 1])
-with col1:
-    st.markdown("""
-    <div style="padding: 0.75rem; background-color: #D1FAE5; border-radius: 8px; border-left: 4px solid #10B981; color: #065F46;">
-        🔒 <strong style="color: #065F46;">Privacy Protected:</strong> All results are aggregated (min. 50 records) and anonymized
-    </div>
-    """, unsafe_allow_html=True)
-
-st.markdown("---")
 
 # Initialize session state
 if 'query_history' not in st.session_state:
@@ -74,36 +62,6 @@ if 'current_results' not in st.session_state:
     st.session_state.current_results = None
 if 'first_visit' not in st.session_state:
     st.session_state.first_visit = True
-
-# First-time user welcome
-if st.session_state.first_visit:
-    st.markdown("""
-    <div style="
-        background: linear-gradient(135deg, #F59E0B 0%, #DC2626 100%);
-        padding: 2rem;
-        border-radius: 15px;
-        color: white;
-        margin-bottom: 2rem;
-        box-shadow: 0 10px 25px rgba(0,0,0,0.2);
-    ">
-        <h2 style="margin: 0 0 1rem 0; text-align: center;">🎉 Welcome to Cross-Company Insights!</h2>
-        <div style="background: rgba(255,255,255,0.2); padding: 1.5rem; border-radius: 10px;">
-            <h3 style="margin: 0 0 1rem 0;">Quick Start in 3 Steps:</h3>
-            <ol style="margin: 0; padding-left: 1.5rem; line-height: 1.8;">
-                <li><strong>Scroll down</strong> and click one of the colored example question buttons (🎯 Age Group Fraud, 🗺️ Geographic Hotspots, or 📊 Organization Summary)</li>
-                <li>The question will auto-fill in the text box - then <strong>click the red "🔍 Analyze" button</strong></li>
-                <li>Watch as AI generates SQL and displays beautiful charts & insights!</li>
-            </ol>
-            <div style="margin-top: 1rem; text-align: center;">
-                <strong>⏱️ It takes less than 10 seconds to see your first results!</strong>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    if st.button("✅ Got it! Let's start", type="primary", use_container_width=True):
-        st.session_state.first_visit = False
-        st.rerun()
 
 # Sidebar - Organization selector
 with st.sidebar:
@@ -136,20 +94,36 @@ with st.sidebar:
     )
     
     st.markdown(f"""
-    <div style="padding: 1rem; background-color: #F9FAFB; border-radius: 5px; margin-top: 1rem;">
-        <strong>Logged in as:</strong><br>
-        {org_name}<br>
-        <small style="color: #6B7280;">Analyst Role</small>
+    <div style="
+        background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+        padding: 1rem;
+        border-radius: 8px;
+        margin-top: 1rem;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    ">
+        <strong style="color: #a78bfa; font-size: 0.9rem;">Logged in as:</strong><br>
+        <span style="color: white; font-size: 1.05rem;">{org_name}</span><br>
+        <small style="color: #94a3b8;">Analyst Role</small>
     </div>
     """, unsafe_allow_html=True)
     
     st.markdown("---")
     st.markdown("### 🔍 Query Type")
     
-    # Add explanatory text before radio buttons
+    # Add explanatory text before radio buttons - dark themed
     st.markdown("""
-    <div style="background: #FEF3C7; padding: 0.75rem; border-radius: 5px; margin-bottom: 1rem; font-size: 0.85rem;">
-        <strong>💡 Tip:</strong> Start with <strong>Natural Language</strong> if you're new!
+    <div style="
+        background: linear-gradient(135deg, #92400e 0%, #78350f 100%);
+        padding: 0.75rem;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+        font-size: 0.9rem;
+        border-left: 4px solid #fbbf24;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    ">
+        <strong style="color: #fde68a;">💡 Tip:</strong> 
+        <span style="color: rgba(255, 255, 255, 0.95);">Start with <strong style="color: white;">Natural Language</strong> if you're new!</span>
     </div>
     """, unsafe_allow_html=True)
     
@@ -166,12 +140,18 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 📊 Data Sources")
     st.markdown("""
-    <small>
-    ✅ Bank transactions (10K)<br>
-    ✅ Insurance claims (8K)<br>
-    ✅ Retail purchases (12K)<br>
-    ✅ Total: 30,000 records
-    </small>
+    <div style="
+        background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+        padding: 0.75rem;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    ">
+        <div style="color: #86efac; font-size: 0.9rem;">✅ Bank transactions (10K)</div>
+        <div style="color: #86efac; font-size: 0.9rem;">✅ Insurance claims (8K)</div>
+        <div style="color: #86efac; font-size: 0.9rem;">✅ Retail purchases (12K)</div>
+        <div style="color: #fbbf24; font-weight: 600; margin-top: 0.5rem; font-size: 0.95rem;">Total: 30,000 records</div>
+    </div>
     """, unsafe_allow_html=True)
     
     st.markdown("---")
@@ -203,88 +183,181 @@ with st.sidebar:
         """)
         
         st.markdown("""
-        <div style="background: #DBEAFE; padding: 1rem; border-radius: 5px; margin-top: 1rem;">
-            <strong>📧 Need more help?</strong><br>
-            Contact: support@secureinsights.com
+        <div style="
+            background: linear-gradient(135deg, #1e40af 0%, #1e3a8a 100%);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-top: 1rem;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        ">
+            <strong style="color: #93c5fd;">📧 Need more help?</strong><br>
+            <span style="color: rgba(255, 255, 255, 0.95);">Contact: support@secureinsights.com</span>
         </div>
         """, unsafe_allow_html=True)
 
 # Main content area
 if query_mode == "Natural Language":
-    # Prominent help banner
+    # MAIN FEATURE - Query box at the top with hero design
     st.markdown("""
     <div style="
-        background: linear-gradient(135deg, #059669 0%, #047857 100%);
-        padding: 1.5rem;
-        border-radius: 10px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 2.5rem;
+        border-radius: 15px;
         color: white;
         margin-bottom: 1.5rem;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+        border: 1px solid rgba(255, 255, 255, 0.1);
     ">
-        <h3 style="margin: 0 0 0.5rem 0; color: white;">💬 How to Use Natural Language Queries</h3>
-        <ol style="margin: 0; padding-left: 1.5rem; line-height: 1.8; color: white;">
-            <li><strong style="color: white;">Type your question</strong> in plain English in the box below</li>
-            <li><strong style="color: white;">Click "Analyze"</strong> button (red button below)</li>
-            <li><strong style="color: white;">View AI-generated SQL</strong> - expand "View Generated SQL" to see how AI converted your question</li>
-            <li><strong style="color: white;">Explore results</strong> - see charts, tables, and insights automatically generated</li>
-        </ol>
-        <div style="margin-top: 1rem; padding: 0.75rem; background: rgba(255,255,255,0.25); border-radius: 5px; color: white;">
-            ⭐ <strong style="color: white;">Pro Tip:</strong> Try clicking the example questions below to get started instantly!
-        </div>
+        <h1 style="margin: 0 0 0.5rem 0; color: white; font-size: 2.5rem; text-shadow: 2px 2px 4px rgba(0,0,0,0.2);">🤖 Ask Questions in Natural Language</h1>
+        <p style="margin: 0; font-size: 1.2rem; color: rgba(255, 255, 255, 0.95);">Type your question below and get privacy-safe answers from multiple organizations instantly</p>
     </div>
     """, unsafe_allow_html=True)
     
-    st.markdown("### 🤖 Ask a Question About Your Data")
+    # Example questions - dark themed and prominent
+    st.markdown("""
+    <div style="
+        background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+        padding: 1.25rem;
+        border-radius: 10px;
+        border-left: 4px solid #f59e0b;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    ">
+        <strong style="font-size: 1.15rem; color: #fbbf24;">💡 Click any example to auto-fill your question:</strong>
+    </div>
+    """, unsafe_allow_html=True)
     
-    # Example questions with click-to-use
-    st.markdown("#### 💡 Click any example to try it:")
+    # Add CSS for button styling
+    st.markdown("""
+    <style>
+    /* Pink button */
+    button[kind="secondary"]:nth-of-type(1) {
+        background: linear-gradient(135deg, #ec4899 0%, #be185d 100%) !important;
+        color: white !important;
+        border: none !important;
+        padding: 0.75rem 1.5rem !important;
+        font-weight: 600 !important;
+        border-radius: 8px !important;
+    }
+    button[kind="secondary"]:nth-of-type(1):hover {
+        box-shadow: 0 6px 20px rgba(236, 72, 153, 0.6) !important;
+        transform: translateY(-2px) !important;
+    }
+    /* Blue button */
+    button[kind="secondary"]:nth-of-type(2) {
+        background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%) !important;
+        color: white !important;
+        border: none !important;
+        padding: 0.75rem 1.5rem !important;
+        font-weight: 600 !important;
+        border-radius: 8px !important;
+    }
+    button[kind="secondary"]:nth-of-type(2):hover {
+        box-shadow: 0 6px 20px rgba(59, 130, 246, 0.6) !important;
+        transform: translateY(-2px) !important;
+    }
+    /* Green button */
+    button[kind="secondary"]:nth-of-type(3) {
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+        color: white !important;
+        border: none !important;
+        padding: 0.75rem 1.5rem !important;
+        font-weight: 600 !important;
+        border-radius: 8px !important;
+    }
+    button[kind="secondary"]:nth-of-type(3):hover {
+        box-shadow: 0 6px 20px rgba(16, 185, 129, 0.6) !important;
+        transform: translateY(-2px) !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns(3)
     
-    with col1:
-        if st.button("🎯 Age Group Fraud", use_container_width=True, type="secondary"):
-            st.session_state.sample_question = "Which age groups have the highest combined fraud risk?"
-    with col2:
-        if st.button("🗺️ Geographic Hotspots", use_container_width=True, type="secondary"):
-            st.session_state.sample_question = "Show me geographic areas with elevated fraud rates"
-    with col3:
-        if st.button("📊 Organization Summary", use_container_width=True, type="secondary"):
-            st.session_state.sample_question = "What is the overall fraud summary by organization?"
+    # Initialize flag to trigger text area update
+    if 'question_changed' not in st.session_state:
+        st.session_state.question_changed = False
     
+    with col1:
+        if st.button("🎯 Age Group Fraud", use_container_width=True, key="example1", type="secondary"):
+            st.session_state.nl_query_input = "Which age groups have the highest combined fraud risk?"
+            st.session_state.question_changed = True
+            st.rerun()
+    with col2:
+        if st.button("🗺️ Geographic Hotspots", use_container_width=True, key="example2", type="secondary"):
+            st.session_state.nl_query_input = "Show me geographic areas with elevated fraud rates"
+            st.session_state.question_changed = True
+            st.rerun()
+    with col3:
+        if st.button("📊 Organization Summary", use_container_width=True, key="example3", type="secondary"):
+            st.session_state.nl_query_input = "What is the overall fraud summary by organization?"
+            st.session_state.question_changed = True
+            st.rerun()
+    
+    # Query input box - Large and prominent
     st.markdown("<br>", unsafe_allow_html=True)
     
-    with st.expander("📚 More Example Questions You Can Ask"):
-        st.markdown("""
-        **Demographic Analysis:**
-        - Which age groups have the highest combined fraud risk?
-        - Compare fraud rates across different age demographics
-        
-        **Geographic Analysis:**
-        - Show me geographic areas with elevated insurance claim rates
-        - Are there patterns connecting retail returns and loan defaults?
-        - Which demographic segments are underserved by financial services?
-        - What trends have emerged in fraud patterns over the last 6 months?
-        """)
+    # Initialize the text area value if not exists
+    if 'nl_query_input' not in st.session_state:
+        st.session_state.nl_query_input = ''
     
-    # Query input with pre-filled sample if clicked
-    default_question = st.session_state.get('sample_question', '')
     user_question = st.text_area(
-        "Your question:",
-        value=default_question,
+        "**✍️ Type your question here:**",
+        value=st.session_state.nl_query_input,
         placeholder="e.g., Which age groups show the highest combined risk of insurance fraud and credit default?",
-        height=100,
-        key="nl_query_input",
+        height=120,
         help="Type your question in plain English. AI will convert it to SQL and query your data."
     )
     
-    # Clear the sample question after it's been used
-    if 'sample_question' in st.session_state and default_question:
-        del st.session_state.sample_question
+    # Update session state only if user manually changed it
+    if not st.session_state.question_changed:
+        st.session_state.nl_query_input = user_question
+    else:
+        st.session_state.question_changed = False
     
-    col1, col2, col3 = st.columns([1, 1, 4])
+    # Add CSS for Analyze and Clear buttons
+    st.markdown("""
+    <style>
+    /* Analyze button - vibrant red/coral gradient */
+    button[kind="primary"] {
+        background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
+        color: white !important;
+        border: none !important;
+        font-weight: 600 !important;
+        font-size: 1.1rem !important;
+        padding: 0.75rem 2rem !important;
+        border-radius: 10px !important;
+        box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4) !important;
+        transition: all 0.3s ease !important;
+    }
+    button[kind="primary"]:hover {
+        box-shadow: 0 6px 25px rgba(239, 68, 68, 0.6) !important;
+        transform: translateY(-2px) !important;
+    }
+    /* Clear button - pink/magenta gradient */
+    div[data-testid="column"]:nth-child(2) button {
+        background: linear-gradient(135deg, #ec4899 0%, #be185d 100%) !important;
+        color: white !important;
+        border: none !important;
+        font-weight: 600 !important;
+        font-size: 1.1rem !important;
+        padding: 0.75rem 2rem !important;
+        border-radius: 10px !important;
+        box-shadow: 0 4px 15px rgba(236, 72, 153, 0.4) !important;
+        transition: all 0.3s ease !important;
+    }
+    div[data-testid="column"]:nth-child(2) button:hover {
+        box-shadow: 0 6px 25px rgba(236, 72, 153, 0.6) !important;
+        transform: translateY(-2px) !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([2, 2, 6])
     with col1:
         analyze_button = st.button("🔍 Analyze", type="primary", use_container_width=True, 
-                                   help="Click to generate SQL and execute query")
+                                   help="Click to generate SQL and execute query",
+                                   key="analyze_main")
     with col2:
         clear_button = st.button("🔄 Clear", use_container_width=True,
                                 help="Clear the question and results")
@@ -608,9 +681,62 @@ Generate ONLY the SQL query, no explanations. The query should return results th
                         csv = demo_data.to_csv(index=False)
                         st.download_button("Download CSV", csv, "insights.csv", "text/csv")
                 
+                # Privacy badge and help section - after results
+                st.markdown("<br><br>", unsafe_allow_html=True)
+                st.markdown("""
+                <div style="
+                    background: linear-gradient(135deg, #065f46 0%, #047857 100%);
+                    padding: 1rem;
+                    border-radius: 10px;
+                    border-left: 4px solid #10b981;
+                    color: white;
+                    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+                ">
+                    🔒 <strong style="color: #6ee7b7;">Privacy Protected:</strong> 
+                    <span style="color: rgba(255, 255, 255, 0.95);">All results are aggregated (min. 50 records) and anonymized • 30,000 records across 3 organizations</span>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Collapsible help section
+                with st.expander("📚 More Example Questions & Help"):
+                    st.markdown("""
+                    **Demographic Analysis:**
+                    - Which age groups have the highest combined fraud risk?
+                    - Compare fraud rates across different age demographics
+                    
+                    **Geographic Analysis:**
+                    - Show me geographic areas with elevated insurance claim rates
+                    - Are there patterns connecting retail returns and loan defaults?
+                    
+                    **Cross-Organization Insights:**
+                    - Which demographic segments are underserved by financial services?
+                    - What trends have emerged in fraud patterns over the last 6 months?
+                    
+                    ### Quick Tips:
+                    - Ask questions like you're talking to a person
+                    - Be specific: "Which age groups..." not just "age"
+                    - Use keywords: fraud, risk, geographic, age, etc.
+                    """)
+                
             except Exception as e:
                 st.error(f"❌ Error executing query: {str(e)}")
                 st.exception(e)
+                
+                # Show privacy and help even on error
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.markdown("""
+                <div style="
+                    background: linear-gradient(135deg, #065f46 0%, #047857 100%);
+                    padding: 1rem;
+                    border-radius: 10px;
+                    border-left: 4px solid #10b981;
+                    color: white;
+                    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+                ">
+                    🔒 <strong style="color: #6ee7b7;">Privacy Protected:</strong> 
+                    <span style="color: rgba(255, 255, 255, 0.95);">All results are aggregated (min. 50 records) and anonymized • 30,000 records across 3 organizations</span>
+                </div>
+                """, unsafe_allow_html=True)
 
 elif query_mode == "Predefined Queries":
     st.markdown("### 📊 Predefined Analysis Templates")
