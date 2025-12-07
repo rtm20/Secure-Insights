@@ -13,6 +13,7 @@ from pathlib import Path
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
+from components.loader import show_loader
 
 from utils.snowflake_connector import get_connection
 from utils.ai_explainer import get_explainer
@@ -369,94 +370,181 @@ if query_mode == "Natural Language":
     if analyze_button and user_question:
         # Show loading state
         loading_placeholder = st.empty()
-        loading_placeholder.markdown("""
-        <div style="
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 2rem;
-            border-radius: 10px;
-            text-align: center;
-            color: white;
-            margin: 2rem 0;
-        ">
-            <div style="font-size: 3rem; margin-bottom: 1rem;">🤖</div>
-            <h3 style="color: white; margin: 0;">AI is Analyzing Your Question...</h3>
-            <p style="color: white; opacity: 0.9; margin-top: 0.5rem;">Connecting to Snowflake • Generating SQL • Executing Query</p>
-            <div style="margin-top: 1rem;">
-                <div style="display: inline-block; width: 50px; height: 50px; border: 5px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 1s linear infinite;"></div>
-            </div>
-        </div>
-        <style>
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        </style>
-        """, unsafe_allow_html=True)
+        with loading_placeholder.container():
+            show_loader("AI is analyzing your question")
         
-        with st.spinner("Processing..."):
-            try:
-                # Get connection to Snowflake
-                conn = get_connection()
-                
-                if not conn.connect():
-                    loading_placeholder.empty()
-                    st.error("Failed to connect to Snowflake")
-                    st.stop()
-                
+        try:
+            # Get connection to Snowflake
+            conn = get_connection()
+            
+            if not conn.connect():
                 loading_placeholder.empty()
-                
-                # Use Cortex AI to generate SQL from natural language
-                ai_prompt = f"""You are a SQL expert for Snowflake data warehouses. Generate a privacy-safe SQL query for the following question.
+                st.error("Failed to connect to Snowflake")
+                st.stop()
+            
+            # Keep loader visible during query generation and execution
+            
+            # Use Cortex AI to generate SQL from natural language
+            ai_prompt = f"""You are a SQL expert for Snowflake data warehouses. Generate a privacy-safe SQL query for the following question.
 
-IMPORTANT RULES:
-1. Always use UNION ALL to combine data from multiple tables
-2. Always include: HAVING COUNT(*) >= 50 (minimum aggregation for privacy)
-3. Never return individual records - only aggregated results
-4. Use GROUP BY for all queries
-5. Round decimal values to 1 decimal place
+CRITICAL DATA TYPE RULES:
+- ALL flag columns (default_flag, fraud_indicator, high_value_returns_flag) are INTEGER (0 or 1), NOT strings
+- Use: WHERE default_flag = 1 (NOT WHERE default_flag = 'Y')
+- zip_code is INTEGER - use CAST(zip_code AS VARCHAR) before SUBSTR operations
+- All numeric columns should be aggregated with SUM(), AVG(), COUNT()
+
+PRIVACY RULES:
+1. Always use UNION ALL to combine data from multiple tables into a CTE first, then aggregate
+2. Use HAVING COUNT(*) >= 50 ONLY when you have GROUP BY in the same SELECT
+3. NEVER put HAVING after the final UNION ALL - put it in the final aggregating SELECT if needed
+4. Never return individual records - only aggregated results
+5. Round decimal values to 1 or 2 decimal places
+
+CORRECT PATTERN:
+WITH combined AS (SELECT ... FROM table1 UNION ALL SELECT ... FROM table2)
+SELECT col, COUNT(*), SUM(flag) FROM combined GROUP BY col HAVING COUNT(*) >= 50;
+
+WRONG PATTERN (DO NOT USE):
+SELECT ... FROM cte1 UNION ALL SELECT ... FROM cte2 HAVING COUNT(*) >= 50;
 
 Available tables and schemas:
-- BANK_DB.RISK.CUSTOMER_RISK_SCORES (columns: customer_id, age, zip_code, credit_score, default_flag, transaction_count, avg_transaction_amount, account_open_date, last_activity_date)
-- INSURANCE_DB.RISK.CLAIM_RISK_SCORES (columns: policy_holder_id, age, zip_code, claim_frequency, total_claim_amount, fraud_indicator, policy_start_date, last_claim_date)
-- RETAIL_DB.RISK.CUSTOMER_RISK_SCORES (columns: customer_id, age, zip_code, return_rate, total_purchase_amount, high_value_returns_flag, first_purchase_date, last_purchase_date)
+- BANK_DB.RISK.CUSTOMER_RISK_SCORES
+  Columns: customer_id (INT), age (INT), zip_code (INT), credit_score (INT), default_flag (INT 0/1), 
+  transaction_count (INT), avg_transaction_amount (DECIMAL), account_open_date (DATE), last_activity_date (DATE)
+  FRAUD FLAG: default_flag (use this column for fraud detection in BANK database)
+
+- INSURANCE_DB.RISK.CLAIM_RISK_SCORES
+  Columns: policy_holder_id (INT), age (INT), zip_code (INT), claim_frequency (INT), total_claim_amount (DECIMAL),
+  fraud_indicator (INT 0/1), policy_start_date (DATE), last_claim_date (DATE)
+  FRAUD FLAG: fraud_indicator (use this column for fraud detection in INSURANCE database)
+
+- RETAIL_DB.RISK.CUSTOMER_RISK_SCORES
+  Columns: customer_id (INT), age (INT), zip_code (INT), return_rate (DECIMAL), total_purchase_amount (DECIMAL),
+  high_value_returns_flag (INT 0/1), first_purchase_date (DATE), last_purchase_date (DATE)
+  FRAUD FLAG: high_value_returns_flag (use this column for fraud detection in RETAIL database)
+
+IMPORTANT: Each table has a DIFFERENT fraud flag column name. When combining tables, you must:
+- Select default_flag from BANK_DB (NOT fraud_indicator)
+- Select fraud_indicator from INSURANCE_DB
+- Select high_value_returns_flag from RETAIL_DB (NOT fraud_indicator)
+- Use column aliases to standardize names in UNION ALL queries
 
 User question: {user_question}
 
 Generate ONLY the SQL query, no explanations. The query should return results that answer the question."""
 
-                # Try to use Cortex AI
-                try:
-                    cortex_query = f"""
-                    SELECT SNOWFLAKE.CORTEX.COMPLETE(
-                        'mistral-large',
-                        '{ai_prompt.replace("'", "''")}'
-                    ) as generated_sql
-                    """
+            # Try to use Cortex AI with improved prompt
+            try:
+                cortex_query = f"""
+                SELECT SNOWFLAKE.CORTEX.COMPLETE(
+                    'mistral-large',
+                    '{ai_prompt.replace("'", "''")}'
+                ) as generated_sql
+                """
+                
+                ai_result = conn.execute_query(cortex_query)
+                if not ai_result.empty:
+                    generated_sql = ai_result.iloc[0]['GENERATED_SQL']
                     
-                    ai_result = conn.execute_query(cortex_query)
-                    if not ai_result.empty:
-                        generated_sql = ai_result.iloc[0]['GENERATED_SQL']
-                        # Extract SQL from markdown code blocks if present
-                        if '```sql' in generated_sql:
-                            generated_sql = generated_sql.split('```sql')[1].split('```')[0].strip()
-                        elif '```' in generated_sql:
-                            generated_sql = generated_sql.split('```')[1].split('```')[0].strip()
-                        
-                        st.info(f"🤖 AI Generated Query")
-                        with st.expander("View Generated SQL"):
-                            st.code(generated_sql, language='sql')
-                        
-                        query = generated_sql
-                    else:
-                        raise Exception("Cortex AI returned empty result")
-                        
-                except Exception as cortex_error:
-                    # Fallback to keyword-based queries if Cortex fails
-                    st.warning(f"⚠️ AI generation unavailable, using optimized query templates")
+                    # Extract SQL from markdown code blocks if present
+                    if '```sql' in generated_sql.lower():
+                        # Find the sql code block (case insensitive)
+                        parts = generated_sql.split('```')
+                        for i, part in enumerate(parts):
+                            if part.lower().startswith('sql'):
+                                generated_sql = part[3:].strip()  # Remove 'sql' and whitespace
+                                break
+                    elif '```' in generated_sql:
+                        generated_sql = generated_sql.split('```')[1].split('```')[0].strip()
                     
-                    if "age" in user_question.lower() or "demographic" in user_question.lower():
-                        # Age group analysis from real data
-                        query = """
-                    WITH combined_data AS (
+                    # Remove any leading "SQL" word that might remain (case insensitive)
+                    if generated_sql.upper().startswith('SQL'):
+                        generated_sql = generated_sql[3:].strip()
+                    
+                    # Clean up any extra whitespace
+                    generated_sql = generated_sql.strip()
+                    
+                    # Fix common AI errors
+                    # Replace string comparisons with numeric comparisons
+                    generated_sql = generated_sql.replace("= 'Y'", "= 1")
+                    generated_sql = generated_sql.replace("= 'N'", "= 0")
+                    generated_sql = generated_sql.replace('= "Y"', "= 1")
+                    generated_sql = generated_sql.replace('= "N"', "= 0")
+                    
+                    # Fix column name case sensitivity issues (Snowflake is case-sensitive with quoted identifiers)
+                    # The AI sometimes uses wrong casing - normalize to lowercase which works unquoted
+                    import re
+                    # Replace FRAUD_INDICATOR with fraud_indicator (case insensitive pattern)
+                    generated_sql = re.sub(r'\bFRAUD_INDICATOR\b', 'fraud_indicator', generated_sql, flags=re.IGNORECASE)
+                    generated_sql = re.sub(r'\bDEFAULT_FLAG\b', 'default_flag', generated_sql, flags=re.IGNORECASE)
+                    generated_sql = re.sub(r'\bHIGH_VALUE_RETURNS_FLAG\b', 'high_value_returns_flag', generated_sql, flags=re.IGNORECASE)
+                    generated_sql = re.sub(r'\bCREDIT_SCORE\b', 'credit_score', generated_sql, flags=re.IGNORECASE)
+                    generated_sql = re.sub(r'\bZIP_CODE\b', 'zip_code', generated_sql, flags=re.IGNORECASE)
+                    generated_sql = re.sub(r'\bCUSTOMER_ID\b', 'customer_id', generated_sql, flags=re.IGNORECASE)
+                    generated_sql = re.sub(r'\bPOLICY_HOLDER_ID\b', 'policy_holder_id', generated_sql, flags=re.IGNORECASE)
+                    
+                    # Fix wrong column selection from wrong tables
+                    # BANK_DB doesn't have fraud_indicator, it has default_flag
+                    # Pattern: Look for fraud_indicator being selected from BANK_DB and replace with default_flag
+                    generated_sql = re.sub(
+                        r'(SELECT\s+(?:[\w\s,()]+,\s*)?)(fraud_indicator)(\s+(?:AS\s+\w+)?\s*)(\s*FROM\s+BANK_DB\.RISK\.CUSTOMER_RISK_SCORES)',
+                        r'\1default_flag\3\4',
+                        generated_sql,
+                        flags=re.IGNORECASE
+                    )
+                    
+                    # RETAIL_DB doesn't have fraud_indicator, it has high_value_returns_flag
+                    generated_sql = re.sub(
+                        r'(SELECT\s+(?:[\w\s,()]+,\s*)?)(fraud_indicator)(\s+(?:AS\s+\w+)?\s*)(\s*FROM\s+RETAIL_DB\.RISK\.CUSTOMER_RISK_SCORES)',
+                        r'\1high_value_returns_flag\3\4',
+                        generated_sql,
+                        flags=re.IGNORECASE
+                    )
+                    
+                    # Ensure ZIP_CODE is cast to VARCHAR for SUBSTR operations (check both cases)
+                    generated_sql = generated_sql.replace("SUBSTR(zip_code", "SUBSTR(CAST(zip_code AS VARCHAR)")
+                    
+                    # Fix invalid HAVING after UNION ALL (remove trailing HAVING without GROUP BY)
+                    if "UNION ALL" in generated_sql.upper() and generated_sql.upper().strip().endswith("HAVING"):
+                        # Remove trailing HAVING clause after UNION ALL
+                        lines = generated_sql.split('\n')
+                        cleaned_lines = []
+                        skip_next = False
+                        for i, line in enumerate(lines):
+                            if skip_next:
+                                skip_next = False
+                                continue
+                            if i == len(lines) - 1 or (i < len(lines) - 1 and "HAVING" in lines[i+1].upper() and "GROUP BY" not in generated_sql.split("UNION ALL")[-1].upper()):
+                                if "HAVING" not in line.upper():
+                                    cleaned_lines.append(line)
+                            else:
+                                cleaned_lines.append(line)
+                        generated_sql = '\n'.join(cleaned_lines).rstrip(';').rstrip() + ';'
+                    
+                    # Remove invalid HAVING COUNT(*) >= 50 after final UNION ALL select
+                    generated_sql = re.sub(r'\)\s+HAVING\s+COUNT\s*\(\s*\*\s*\)\s*>=\s*\d+\s*;?\s*$', ');', generated_sql, flags=re.IGNORECASE)
+                    
+                    st.info(f"🤖 AI Generated Query")
+                    with st.expander("View Generated SQL"):
+                        st.code(generated_sql, language='sql')
+                    
+                    # Validate the SQL before using it
+                    if 'FRAUD_INDICATOR' in generated_sql or 'DEFAULT_FLAG' in generated_sql or 'HIGH_VALUE_RETURNS_FLAG' in generated_sql:
+                        st.warning("⚠️ Detected uppercase column names in AI query - these may cause errors. Using fallback query.")
+                        raise Exception("AI generated query with incorrect column casing")
+                    
+                    query = generated_sql
+                else:
+                    raise Exception("Cortex AI returned empty result")
+                    
+            except Exception as cortex_error:
+                # Fallback to keyword-based queries if Cortex fails
+                st.warning(f"⚠️ AI generation unavailable, using optimized query templates")
+                
+                if "age" in user_question.lower() or "demographic" in user_question.lower():
+                    # Age group analysis from real data
+                    query = """
+                WITH combined_data AS (
                         SELECT 
                             CASE 
                                 WHEN age BETWEEN 18 AND 24 THEN '18-24'
@@ -514,13 +602,13 @@ Generate ONLY the SQL query, no explanations. The query should return results th
                     HAVING COUNT(*) >= 50
                     ORDER BY AVG_RISK_SCORE DESC
                     """
-                    
-                    elif "geographic" in user_question.lower() or "location" in user_question.lower() or "zip" in user_question.lower():
-                        # Geographic analysis
-                        query = """
-                    WITH combined_data AS (
+                
+                elif "geographic" in user_question.lower() or "location" in user_question.lower() or "zip" in user_question.lower():
+                    # Geographic analysis
+                    query = """
+                WITH combined_data AS (
                         SELECT 
-                            SUBSTR(zip_code, 1, 3) AS ZIP_PREFIX,
+                            SUBSTR(CAST(ZIP_CODE AS VARCHAR), 1, 3) AS ZIP_PREFIX,
                             credit_score,
                             default_flag
                         FROM BANK_DB.RISK.CUSTOMER_RISK_SCORES
@@ -528,7 +616,7 @@ Generate ONLY the SQL query, no explanations. The query should return results th
                         UNION ALL
                         
                         SELECT 
-                            SUBSTR(zip_code, 1, 3) AS ZIP_PREFIX,
+                            SUBSTR(CAST(ZIP_CODE AS VARCHAR), 1, 3) AS ZIP_PREFIX,
                             NULL as credit_score,
                             fraud_indicator as default_flag
                         FROM INSURANCE_DB.RISK.CLAIM_RISK_SCORES
@@ -536,7 +624,7 @@ Generate ONLY the SQL query, no explanations. The query should return results th
                         UNION ALL
                         
                         SELECT 
-                            SUBSTR(zip_code, 1, 3) AS ZIP_PREFIX,
+                            SUBSTR(CAST(ZIP_CODE AS VARCHAR), 1, 3) AS ZIP_PREFIX,
                             NULL as credit_score,
                             high_value_returns_flag as default_flag
                         FROM RETAIL_DB.RISK.CUSTOMER_RISK_SCORES
@@ -544,199 +632,200 @@ Generate ONLY the SQL query, no explanations. The query should return results th
                     SELECT 
                         ZIP_PREFIX as ZIP_CODE_PREFIX,
                         COUNT(*) as CUSTOMER_COUNT,
-                        ROUND(AVG(COALESCE(credit_score, 50)), 1) as AVG_RISK_SCORE,
-                        SUM(default_flag) as FRAUD_CASES
+                        ROUND(AVG(COALESCE(credit_score, 600)), 1) as AVG_RISK_SCORE,
+                        SUM(default_flag) as FRAUD_CASES,
+                        ROUND(SUM(default_flag) * 100.0 / COUNT(*), 2) as FRAUD_RATE_PCT
                     FROM combined_data
                     GROUP BY ZIP_PREFIX
                     HAVING COUNT(*) >= 50
-                    ORDER BY AVG_RISK_SCORE DESC
+                    ORDER BY FRAUD_CASES DESC
                     LIMIT 20
                     """
-                    
-                    else:
-                        # Default summary query
-                        query = """
-                    WITH combined_data AS (
-                        SELECT 
-                            'Bank' as SOURCE_ORG,
-                            COUNT(*) as TOTAL_RECORDS,
-                            SUM(default_flag) as FRAUD_CASES,
-                            ROUND(AVG(credit_score), 1) as AVG_RISK_SCORE
-                        FROM BANK_DB.RISK.CUSTOMER_RISK_SCORES
-                        
-                        UNION ALL
-                        
-                        SELECT 
-                            'Insurance' as SOURCE_ORG,
-                            COUNT(*) as TOTAL_RECORDS,
-                            SUM(fraud_indicator) as FRAUD_CASES,
-                            50.0 as AVG_RISK_SCORE
-                        FROM INSURANCE_DB.RISK.CLAIM_RISK_SCORES
-                        
-                        UNION ALL
-                        
-                        SELECT 
-                            'Retail' as SOURCE_ORG,
-                            COUNT(*) as TOTAL_RECORDS,
-                            SUM(high_value_returns_flag) as FRAUD_CASES,
-                            50.0 as AVG_RISK_SCORE
-                        FROM RETAIL_DB.RISK.CUSTOMER_RISK_SCORES
-                    )
-                    SELECT 
-                        SOURCE_ORG as ORGANIZATION,
-                        TOTAL_RECORDS,
-                        FRAUD_CASES,
-                        AVG_RISK_SCORE,
-                        ROUND(FRAUD_CASES * 100.0 / NULLIF(TOTAL_RECORDS, 0), 2) as FRAUD_RATE_PCT
-                    FROM combined_data
-                    ORDER BY FRAUD_RATE_PCT DESC
+                
+                else:
+                    # Default summary query - fraud overview by organization
+                    query = """
+                SELECT 
+                    'Bank' as ORGANIZATION,
+                    COUNT(*) as TOTAL_RECORDS,
+                    SUM(DEFAULT_FLAG) as FRAUD_CASES,
+                    ROUND(AVG(CREDIT_SCORE), 1) as AVG_CREDIT_SCORE,
+                    ROUND(SUM(DEFAULT_FLAG) * 100.0 / COUNT(*), 2) as FRAUD_RATE_PCT
+                FROM BANK_DB.RISK.CUSTOMER_RISK_SCORES
+                
+                UNION ALL
+                
+                SELECT 
+                    'Insurance' as ORGANIZATION,
+                    COUNT(*) as TOTAL_RECORDS,
+                    SUM(FRAUD_INDICATOR) as FRAUD_CASES,
+                    ROUND(AVG(CLAIM_FREQUENCY * 100), 1) as AVG_CREDIT_SCORE,
+                    ROUND(SUM(FRAUD_INDICATOR) * 100.0 / COUNT(*), 2) as FRAUD_RATE_PCT
+                FROM INSURANCE_DB.RISK.CLAIM_RISK_SCORES
+                
+                UNION ALL
+                
+                SELECT 
+                    'Retail' as ORGANIZATION,
+                    COUNT(*) as TOTAL_RECORDS,
+                    SUM(HIGH_VALUE_RETURNS_FLAG) as FRAUD_CASES,
+                    ROUND(AVG(RETURN_RATE * 1000), 1) as AVG_CREDIT_SCORE,
+                    ROUND(SUM(HIGH_VALUE_RETURNS_FLAG) * 100.0 / COUNT(*), 2) as FRAUD_RATE_PCT
+                FROM RETAIL_DB.RISK.CUSTOMER_RISK_SCORES
+                
+                ORDER BY FRAUD_RATE_PCT DESC
                     """
+            
+            # Execute the query (whether AI-generated or fallback)
+            result_df = conn.execute_query(query)
+            
+            if result_df.empty:
+                loading_placeholder.empty()
+                st.warning("No data returned from query. Try rephrasing your question.")
+                st.stop()
+            
+            # Smart column renaming - make names readable
+            readable_columns = {}
+            for col in result_df.columns:
+                # Convert SQL column names to readable format
+                readable = col.replace('_', ' ').title()
+                readable_columns[col] = readable
+            
+            demo_data = result_df.rename(columns=readable_columns)
+            
+            # Clear loader after data is ready
+            loading_placeholder.empty()
+            
+            st.success("✅ Query executed successfully!")
+            st.session_state.current_results = demo_data
+                
+            # Display results
+            st.markdown("### 📊 Results")
+            
+            # Show key metrics if numeric columns exist
+            numeric_cols = demo_data.select_dtypes(include=['int64', 'float64']).columns.tolist()
+            if numeric_cols:
+                cols = st.columns(min(4, len(numeric_cols)))
+                for idx, col_name in enumerate(numeric_cols[:4]):
+                    with cols[idx]:
+                        value = demo_data[col_name].sum() if 'count' in col_name.lower() else demo_data[col_name].mean()
+                        st.metric(col_name, f"{value:,.1f}")
+                
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # Smart visualization based on data structure
+            if len(demo_data.columns) >= 2:
+                # Get first text/category column and first numeric column
+                cat_col = next((col for col in demo_data.columns if demo_data[col].dtype == 'object'), demo_data.columns[0])
+                num_cols = [col for col in demo_data.columns if col != cat_col and demo_data[col].dtype in ['int64', 'float64']]
+                
+                if num_cols:
+                    col1, col2 = st.columns(2)
                     
-                # Execute the query (whether AI-generated or fallback)
-                result_df = conn.execute_query(query)
-                
-                if result_df.empty:
-                    st.warning("No data returned from query. Try rephrasing your question.")
-                    st.stop()
-                
-                # Smart column renaming - make names readable
-                readable_columns = {}
-                for col in result_df.columns:
-                    # Convert SQL column names to readable format
-                    readable = col.replace('_', ' ').title()
-                    readable_columns[col] = readable
-                
-                demo_data = result_df.rename(columns=readable_columns)
-                
-                st.success("✅ Query executed successfully!")
-                st.session_state.current_results = demo_data
+                    with col1:
+                        fig = px.bar(
+                            demo_data,
+                            x=cat_col,
+                            y=num_cols[0],
+                            title=f'{num_cols[0]} by {cat_col}',
+                            color=num_cols[0],
+                            color_continuous_scale='Reds'
+                        )
+                        fig.update_layout(height=400, showlegend=False)
+                        st.plotly_chart(fig, use_container_width=True)
                     
-                # Display results
-                st.markdown("### 📊 Results")
-                
-                # Show key metrics if numeric columns exist
-                numeric_cols = demo_data.select_dtypes(include=['int64', 'float64']).columns.tolist()
-                if numeric_cols:
-                    cols = st.columns(min(4, len(numeric_cols)))
-                    for idx, col_name in enumerate(numeric_cols[:4]):
-                        with cols[idx]:
-                            value = demo_data[col_name].sum() if 'count' in col_name.lower() else demo_data[col_name].mean()
-                            st.metric(col_name, f"{value:,.1f}")
-                    
-                st.markdown("<br>", unsafe_allow_html=True)
-                
-                # Smart visualization based on data structure
-                if len(demo_data.columns) >= 2:
-                    # Get first text/category column and first numeric column
-                    cat_col = next((col for col in demo_data.columns if demo_data[col].dtype == 'object'), demo_data.columns[0])
-                    num_cols = [col for col in demo_data.columns if col != cat_col and demo_data[col].dtype in ['int64', 'float64']]
-                    
-                    if num_cols:
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            fig = px.bar(
+                    with col2:
+                        if len(num_cols) > 1:
+                            fig = px.line(
                                 demo_data,
                                 x=cat_col,
-                                y=num_cols[0],
-                                title=f'{num_cols[0]} by {cat_col}',
-                                color=num_cols[0],
-                                color_continuous_scale='Reds'
+                                y=num_cols[1],
+                                title=f'{num_cols[1]} by {cat_col}',
+                                markers=True
                             )
-                            fig.update_layout(height=400, showlegend=False)
+                            fig.update_traces(line_color='#DC2626', marker=dict(size=10))
+                            fig.update_layout(height=400)
                             st.plotly_chart(fig, use_container_width=True)
-                        
-                        with col2:
-                            if len(num_cols) > 1:
-                                fig = px.line(
-                                    demo_data,
-                                    x=cat_col,
-                                    y=num_cols[1],
-                                    title=f'{num_cols[1]} by {cat_col}',
-                                    markers=True
-                                )
-                                fig.update_traces(line_color='#DC2626', marker=dict(size=10))
-                                fig.update_layout(height=400)
-                                st.plotly_chart(fig, use_container_width=True)
-                            else:
-                                # Show pie chart if only one numeric
-                                fig = px.pie(
-                                    demo_data,
-                                    names=cat_col,
-                                    values=num_cols[0],
-                                    title=f'Distribution of {num_cols[0]}'
-                                )
-                                fig.update_layout(height=400)
-                                st.plotly_chart(fig, use_container_width=True)
-                    
-                # Data table
-                st.markdown("### 📋 Detailed Data")
-                st.dataframe(demo_data, use_container_width=True, hide_index=True)
+                        else:
+                            # Show pie chart if only one numeric
+                            fig = px.pie(
+                                demo_data,
+                                names=cat_col,
+                                values=num_cols[0],
+                                title=f'Distribution of {num_cols[0]}'
+                            )
+                            fig.update_layout(height=400)
+                            st.plotly_chart(fig, use_container_width=True)
                 
-                # Export options
-                st.markdown("---")
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    if st.button("📥 Export to CSV", use_container_width=True):
-                        csv = demo_data.to_csv(index=False)
-                        st.download_button("Download CSV", csv, "insights.csv", "text/csv")
-                
-                # Privacy badge and help section - after results
-                st.markdown("<br><br>", unsafe_allow_html=True)
+            # Data table
+            st.markdown("### 📋 Detailed Data")
+            st.dataframe(demo_data, use_container_width=True, hide_index=True)
+            
+            # Export options
+            st.markdown("---")
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                if st.button("📥 Export to CSV", use_container_width=True):
+                    csv = demo_data.to_csv(index=False)
+                    st.download_button("Download CSV", csv, "insights.csv", "text/csv")
+            
+            # Privacy badge and help section - after results
+            st.markdown("<br><br>", unsafe_allow_html=True)
+            st.markdown("""
+            <div style="
+                background: linear-gradient(135deg, #065f46 0%, #047857 100%);
+                padding: 1rem;
+                border-radius: 10px;
+                border-left: 4px solid #10b981;
+                color: white;
+                box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+            ">
+                🔒 <strong style="color: #6ee7b7;">Privacy Protected:</strong> 
+                <span style="color: rgba(255, 255, 255, 0.95);">All results are aggregated (min. 50 records) and anonymized • 30,000 records across 3 organizations</span>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Collapsible help section
+            with st.expander("📚 More Example Questions & Help"):
                 st.markdown("""
-                <div style="
-                    background: linear-gradient(135deg, #065f46 0%, #047857 100%);
-                    padding: 1rem;
-                    border-radius: 10px;
-                    border-left: 4px solid #10b981;
-                    color: white;
-                    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
-                ">
-                    🔒 <strong style="color: #6ee7b7;">Privacy Protected:</strong> 
-                    <span style="color: rgba(255, 255, 255, 0.95);">All results are aggregated (min. 50 records) and anonymized • 30,000 records across 3 organizations</span>
-                </div>
-                """, unsafe_allow_html=True)
+                **Demographic Analysis:**
+                - Which age groups have the highest combined fraud risk?
+                - Compare fraud rates across different age demographics
                 
-                # Collapsible help section
-                with st.expander("📚 More Example Questions & Help"):
-                    st.markdown("""
-                    **Demographic Analysis:**
-                    - Which age groups have the highest combined fraud risk?
-                    - Compare fraud rates across different age demographics
-                    
-                    **Geographic Analysis:**
-                    - Show me geographic areas with elevated insurance claim rates
-                    - Are there patterns connecting retail returns and loan defaults?
-                    
-                    **Cross-Organization Insights:**
-                    - Which demographic segments are underserved by financial services?
-                    - What trends have emerged in fraud patterns over the last 6 months?
-                    
-                    ### Quick Tips:
-                    - Ask questions like you're talking to a person
-                    - Be specific: "Which age groups..." not just "age"
-                    - Use keywords: fraud, risk, geographic, age, etc.
-                    """)
+                **Geographic Analysis:**
+                - Show me geographic areas with elevated insurance claim rates
+                - Are there patterns connecting retail returns and loan defaults?
                 
-            except Exception as e:
-                st.error(f"❌ Error executing query: {str(e)}")
-                st.exception(e)
+                **Cross-Organization Insights:**
+                - Which demographic segments are underserved by financial services?
+                - What trends have emerged in fraud patterns over the last 6 months?
                 
-                # Show privacy and help even on error
-                st.markdown("<br>", unsafe_allow_html=True)
-                st.markdown("""
-                <div style="
-                    background: linear-gradient(135deg, #065f46 0%, #047857 100%);
-                    padding: 1rem;
-                    border-radius: 10px;
-                    border-left: 4px solid #10b981;
-                    color: white;
-                    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
-                ">
-                    🔒 <strong style="color: #6ee7b7;">Privacy Protected:</strong> 
-                    <span style="color: rgba(255, 255, 255, 0.95);">All results are aggregated (min. 50 records) and anonymized • 30,000 records across 3 organizations</span>
-                </div>
-                """, unsafe_allow_html=True)
+                ### Quick Tips:
+                - Ask questions like you're talking to a person
+                - Be specific: "Which age groups..." not just "age"
+                - Use keywords: fraud, risk, geographic, age, etc.
+                """)
+            
+        except Exception as e:
+            loading_placeholder.empty()
+            st.error(f"❌ Error executing query: {str(e)}")
+            st.exception(e)
+            
+            # Show privacy and help even on error
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("""
+            <div style="
+                background: linear-gradient(135deg, #065f46 0%, #047857 100%);
+                padding: 1rem;
+                border-radius: 10px;
+                border-left: 4px solid #10b981;
+                color: white;
+                box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+            ">
+                🔒 <strong style="color: #6ee7b7;">Privacy Protected:</strong> 
+                <span style="color: rgba(255, 255, 255, 0.95);">All results are aggregated (min. 50 records) and anonymized • 30,000 records across 3 organizations</span>
+            </div>
+            """, unsafe_allow_html=True)
 
 elif query_mode == "Predefined Queries":
     st.markdown("### 📊 Predefined Analysis Templates")
@@ -769,9 +858,17 @@ elif query_mode == "Predefined Queries":
             metric = st.selectbox("Rank by:", ["Risk Score", "Fraud Cases", "Fraud Rate"])
     
     if st.button("▶️ Run Analysis", type="primary"):
-        with st.spinner("Analyzing data..."):
-            st.success("✅ Analysis complete!")
-            st.info("🔨 This is a template. Results would be displayed here similar to the Natural Language mode.")
+        analysis_placeholder = st.empty()
+        with analysis_placeholder.container():
+            show_loader("Running analysis")
+        
+        # Simulate analysis
+        import time
+        time.sleep(1)
+        analysis_placeholder.empty()
+        
+        st.success("✅ Analysis complete!")
+        st.info("🔨 This is a template. Results would be displayed here similar to the Natural Language mode.")
 
 else:  # Advanced mode
     st.markdown("### ⚙️ Advanced Query Builder")
@@ -809,9 +906,17 @@ ORDER BY avg_risk DESC""",
         is_valid, message = builder.validate_query(sql_query)
         
         if is_valid:
-            with st.spinner("Executing query..."):
-                st.success("✅ Query executed successfully!")
-                st.info("🔨 Results would be displayed here.")
+            query_placeholder = st.empty()
+            with query_placeholder.container():
+                show_loader("Executing SQL query")
+            
+            # Simulate execution
+            import time
+            time.sleep(1)
+            query_placeholder.empty()
+            
+            st.success("✅ Query executed successfully!")
+            st.info("🔨 Results would be displayed here.")
         else:
             st.error(f"❌ Query validation failed: {message}")
 
