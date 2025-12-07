@@ -1,0 +1,22 @@
+# SecureInsights Application Configuration
+
+application:
+  name: "SecureInsights Platform"
+  version: "1.0.0"
+  description: "Privacy-Safe Cross-Company Analytics"
+
+organizations:
+  - id: "bank_001"
+    name: "Metro Bank"
+    type: "bank"
+    icon: "🏦"
+    
+  - id: "insurance_001"
+    name: "SafeGuard Insurance"
+    type: "insurance"
+    icon: "🛡️"
+    
+  - id: "retail_001"
+    name: "RetailCorp"
+    type: "retail"
+    icon: "🛒"

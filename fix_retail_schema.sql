@@ -1,0 +1,2 @@
+﻿CREATE SCHEMA IF NOT EXISTS RETAIL_DB.RISK
+    COMMENT = 'Risk assessment data';

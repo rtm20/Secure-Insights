@@ -1,0 +1,30 @@
+# Core Dependencies
+streamlit==1.29.0
+snowflake-connector-python==3.6.0
+
+# Data Processing
+pandas==2.1.4
+numpy==1.26.2
+
+# Visualization
+plotly==5.18.0
+altair==5.2.0
+
+# Data Generation (for sample data)
+faker==21.0.0
+
+# Configuration Management
+python-dotenv==1.0.0
+pyyaml==6.0.1
+
+# Utilities
+python-dateutil==2.8.2
+pytz==2023.3
+
+# Security
+cryptography==41.0.7
+
+# Optional: For advanced features
+# streamlit-aggrid==0.3.4  # Enhanced data tables
+# streamlit-option-menu==0.3.6  # Better navigation
+# streamlit-extras==0.3.6  # Additional components
